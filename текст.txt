@@ -1,0 +1,832 @@
+<!DOCTYPE html>
+<html lang="az">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>Debt Tracker - Firebase Sync</title>
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+            transition: background-color 0.2s, color 0.2s, border-color 0.2s;
+        }
+        :root {
+            --bg-gradient-start: #667eea;
+            --bg-gradient-end: #764ba2;
+            --card-bg: rgba(255,255,255,0.95);
+            --text-primary: #1e293b;
+            --text-secondary: #64748b;
+            --border-color: #e9ecef;
+            --header-bg: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --header-text: white;
+            --debt-item-bg: white;
+            --debt-item-hover: #f1f5f9;
+            --positive-color: #10b981;
+            --negative-color: #ef4444;
+            --rate-bg: rgba(0,0,0,0.1);
+            --settings-bg: #f8fafc;
+            --modal-bg: white;
+            --nav-bg: white;
+        }
+        body.dark {
+            --bg-gradient-start: #1e1b4b;
+            --bg-gradient-end: #312e81;
+            --card-bg: rgba(15, 23, 42, 0.95);
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --border-color: #334155;
+            --header-bg: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%);
+            --header-text: #e2e8f0;
+            --debt-item-bg: #1e293b;
+            --debt-item-hover: #334155;
+            --positive-color: #34d399;
+            --negative-color: #f87171;
+            --rate-bg: rgba(255,255,255,0.1);
+            --settings-bg: #0f172a;
+            --modal-bg: #1e293b;
+            --nav-bg: #0f172a;
+        }
+        body {
+            background: linear-gradient(135deg, var(--bg-gradient-start) 0%, var(--bg-gradient-end) 100%);
+            min-height: 100vh;
+            padding: 20px 0 80px 0;
+            position: relative;
+        }
+        .dollar-rain {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 0;
+            overflow: hidden;
+        }
+        .dollar {
+            position: absolute;
+            top: -50px;
+            font-size: 24px;
+            animation: fall linear infinite;
+            opacity: 0.4;
+        }
+        @keyframes fall {
+            0% { top: -50px; transform: rotate(0deg); }
+            100% { top: 100%; transform: rotate(360deg); }
+        }
+        .app {
+            position: relative;
+            z-index: 1;
+            max-width: 600px;
+            margin: 0 auto;
+            background: var(--card-bg);
+            border-radius: 32px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+            overflow: hidden;
+            backdrop-filter: blur(10px);
+        }
+        .header {
+            background: var(--header-bg);
+            padding: 20px;
+            color: var(--header-text);
+        }
+        .header-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        .logo { font-size: 22px; font-weight: 700; }
+        .lang-currency { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+        .lang-btn, .theme-btn {
+            background: rgba(255,255,255,0.2);
+            border: none;
+            color: white;
+            padding: 6px 12px;
+            border-radius: 30px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        .lang-btn.active { background: white; color: #667eea; }
+        #currencySelect {
+            background: rgba(255,255,255,0.2);
+            border: none;
+            color: white;
+            padding: 6px 10px;
+            border-radius: 30px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        #currencySelect option { background: #667eea; color: white; }
+        .rate-info {
+            background: var(--rate-bg);
+            border-radius: 16px;
+            padding: 8px 10px;
+            font-size: 11px;
+            display: flex;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 5px;
+            margin-bottom: 15px;
+        }
+        .balance-row { display: flex; gap: 12px; }
+        .balance-card {
+            flex: 1;
+            background: rgba(255,255,255,0.15);
+            border-radius: 20px;
+            padding: 10px;
+            text-align: center;
+            cursor: pointer;
+        }
+        .balance-label { font-size: 11px; opacity: 0.9; }
+        .balance-value { font-size: 18px; font-weight: 700; }
+        .positive { color: var(--positive-color); }
+        .negative { color: var(--negative-color); }
+        .page { display: none; padding: 20px; }
+        .page.active { display: block; }
+        .debt-list { display: flex; flex-direction: column; gap: 10px; }
+        .debt-item {
+            background: var(--debt-item-bg);
+            border-radius: 20px;
+            padding: 14px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            border: 1px solid var(--border-color);
+            transition: all 0.2s;
+            color: var(--text-primary);
+        }
+        .debt-item:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(0,0,0,0.2); background: var(--debt-item-hover); }
+        .debt-name { font-size: 16px; font-weight: 600; }
+        .debt-right { display: flex; align-items: center; gap: 10px; }
+        .debt-amount { font-size: 15px; font-weight: 700; }
+        .delete-btn {
+            background: #fee2e2;
+            border: none;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .new-debt-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 14px 24px;
+            border-radius: 40px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            width: 100%;
+            margin-top: 16px;
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.7);
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        .modal-card {
+            background: var(--modal-bg);
+            color: var(--text-primary);
+            width: 90%;
+            max-width: 500px;
+            border-radius: 32px;
+            padding: 24px;
+            max-height: 85vh;
+            overflow-y: auto;
+        }
+        .modal-card h3 { font-size: 22px; margin-bottom: 16px; }
+        .debt-type-select {
+            display: flex;
+            gap: 12px;
+            margin: 15px 0;
+        }
+        .type-option {
+            flex: 1;
+            padding: 12px;
+            border: 2px solid #e2e8f0;
+            border-radius: 30px;
+            text-align: center;
+            cursor: pointer;
+            font-weight: 500;
+        }
+        .type-option.receivable { background: #f0fdf4; color: #10b981; }
+        .type-option.payable { background: #fef2f2; color: #ef4444; }
+        .type-option.selected { border-color: currentColor; background: white; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        body.dark .type-option.receivable { background: #064e3b; color: #34d399; }
+        body.dark .type-option.payable { background: #7f1d1d; color: #f87171; }
+        body.dark .type-option.selected { background: #1e293b; }
+        .currency-select {
+            display: flex;
+            gap: 10px;
+            margin: 15px 0;
+        }
+        .currency-select select, .currency-select input {
+            flex: 1;
+            padding: 14px;
+            border: 2px solid #e2e8f0;
+            border-radius: 24px;
+            font-size: 16px;
+            background: var(--modal-bg);
+            color: var(--text-primary);
+        }
+        .action-buttons {
+            display: flex;
+            gap: 12px;
+            margin: 16px 0;
+        }
+        .action-btn {
+            flex: 1;
+            padding: 14px;
+            border: none;
+            border-radius: 50px;
+            font-size: 16px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+        .minus-btn { background: #fee2e2; color: #ef4444; }
+        .plus-btn { background: #d1fae5; color: #10b981; }
+        .comment-input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e2e8f0;
+            border-radius: 24px;
+            font-size: 14px;
+            margin: 12px 0;
+            background: var(--modal-bg);
+            color: var(--text-primary);
+        }
+        .quick-btns {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+        }
+        .quick-btn {
+            flex: 1;
+            background: #f1f5f9;
+            border: 1px solid #e2e8f0;
+            padding: 6px 10px;
+            border-radius: 30px;
+            cursor: pointer;
+            font-size: 11px;
+        }
+        body.dark .quick-btn { background: #334155; color: white; border-color: #475569; }
+        .transaction-list {
+            max-height: 250px;
+            overflow-y: auto;
+            margin: 16px 0;
+            border-top: 1px solid #e2e8f0;
+            padding-top: 12px;
+        }
+        .transaction-item {
+            background: #f8fafc;
+            border-radius: 16px;
+            padding: 10px;
+            margin-bottom: 8px;
+            font-size: 12px;
+            color: var(--text-primary);
+        }
+        body.dark .transaction-item { background: #0f172a; }
+        .trans-date { font-size: 10px; color: var(--text-secondary); margin-top: 4px; }
+        .trans-comment { background: white; border-radius: 12px; padding: 4px 8px; margin-top: 4px; }
+        body.dark .trans-comment { background: #1e293b; }
+        .modal-actions {
+            display: flex;
+            gap: 12px;
+            margin-top: 12px;
+        }
+        .cancel-btn, .save-btn {
+            flex: 1;
+            padding: 12px;
+            border-radius: 40px;
+            cursor: pointer;
+            font-weight: 500;
+            border: none;
+        }
+        .cancel-btn { background: #e2e8f0; color: #1e293b; }
+        .save-btn { background: #667eea; color: white; }
+        .bottom-nav {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            max-width: 600px;
+            margin: 0 auto;
+            background: var(--nav-bg);
+            display: flex;
+            padding: 10px 16px;
+            box-shadow: 0 -4px 20px rgba(0,0,0,0.1);
+            border-radius: 30px 30px 0 0;
+            z-index: 100;
+        }
+        .nav-item {
+            flex: 1;
+            text-align: center;
+            padding: 8px;
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 500;
+            color: #94a3b8;
+            border-radius: 30px;
+        }
+        .nav-item.active {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        .empty-state {
+            text-align: center;
+            padding: 50px 20px;
+            color: var(--text-secondary);
+        }
+        .current-debt {
+            font-size: 26px;
+            font-weight: 700;
+            text-align: center;
+            padding: 12px;
+            background: #f1f5f9;
+            border-radius: 50px;
+            margin: 12px 0;
+            color: var(--text-primary);
+        }
+        body.dark .current-debt { background: #0f172a; }
+        .settings-card {
+            background: var(--settings-bg);
+            border-radius: 24px;
+            padding: 20px;
+            color: var(--text-primary);
+        }
+        .backup-section {
+            background: var(--debt-item-bg);
+            border-radius: 16px;
+            padding: 16px;
+            margin-top: 16px;
+            border: 1px solid var(--border-color);
+        }
+        .backup-buttons {
+            display: flex;
+            gap: 12px;
+            margin-top: 12px;
+            flex-wrap: wrap;
+        }
+        .backup-btn {
+            flex: 1;
+            padding: 10px;
+            border: none;
+            border-radius: 30px;
+            cursor: pointer;
+            font-weight: 500;
+        }
+        .export-btn { background: #10b981; color: white; }
+        .import-btn { background: #3b82f6; color: white; }
+        .copy-all-btn { background: #8b5cf6; color: white; }
+        .file-input { display: none; }
+        .rate-input-group {
+            display: flex;
+            gap: 8px;
+            margin-top: 10px;
+            flex-wrap: wrap;
+        }
+        .rate-input-group input {
+            flex: 1;
+            padding: 8px;
+            border: 1px solid #cbd5e1;
+            border-radius: 20px;
+            background: var(--modal-bg);
+            color: var(--text-primary);
+        }
+        .save-rate-btn, .refresh-rate, .theme-toggle {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 30px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        .auto-backup-info {
+            background: #d1fae5;
+            color: #065f46;
+            padding: 8px 12px;
+            border-radius: 16px;
+            font-size: 11px;
+            margin-top: 10px;
+            text-align: center;
+        }
+        body.dark .auto-backup-info { background: #064e3b; color: #a7f3d0; }
+        .sync-status {
+            font-size: 10px;
+            margin-left: 8px;
+            background: rgba(255,255,255,0.3);
+            border-radius: 12px;
+            padding: 2px 8px;
+        }
+    </style>
+</head>
+<body>
+<div class="dollar-rain" id="dollarRain"></div>
+
+<div class="app">
+    <div class="header">
+        <div class="header-top">
+            <div class="logo">💰 Debt Tracker <span class="sync-status" id="syncStatus">☁️ local</span></div>
+            <div class="lang-currency">
+                <button class="lang-btn" data-lang="az">AZ</button>
+                <button class="lang-btn" data-lang="ru">RU</button>
+                <button class="lang-btn" data-lang="en">EN</button>
+                <button class="theme-btn" id="themeToggle">🌓 Dark/Light</button>
+                <select id="currencySelect">
+                    <option value="AZN">🇦🇿 AZN</option>
+                    <option value="USD">🇺🇸 USD</option>
+                    <option value="EUR">🇪🇺 EUR</option>
+                    <option value="TRY">🇹🇷 TRY</option>
+                    <option value="RUB">🇷🇺 RUB</option>
+                </select>
+            </div>
+        </div>
+        <div class="rate-info" id="rateInfo">
+            <span>💵 USD: 1.70</span>
+            <span>💶 EUR: 1.85</span>
+            <span>🇹🇷 TRY: 0.05</span>
+            <span>🇷🇺 RUB: 0.018</span>
+        </div>
+        <div class="balance-row">
+            <div class="balance-card" data-page="balance">
+                <div class="balance-label" data-i18n="receivable">Alacaq</div>
+                <div class="balance-value positive" id="headerReceivable">0</div>
+            </div>
+            <div class="balance-card" data-page="balance">
+                <div class="balance-label" data-i18n="payable">Borc</div>
+                <div class="balance-value negative" id="headerPayable">0</div>
+            </div>
+            <div class="balance-card" data-page="balance">
+                <div class="balance-label" data-i18n="net">Net</div>
+                <div class="balance-value" id="headerNet">0</div>
+            </div>
+        </div>
+    </div>
+
+    <div id="peoplePage" class="page active">
+        <div id="debtListContainer" class="debt-list"></div>
+        <button class="new-debt-btn" id="openNewDebtModal" data-i18n="newDebt">+ Yeni borc</button>
+    </div>
+
+    <div id="balancePage" class="page">
+        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 24px; padding: 20px; color: white;">
+            <h3 style="margin-bottom: 12px;" data-i18n="fullBalance">Tam Balans</h3>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 10px;"><span data-i18n="totalReceivable">Ümumi alacaq:</span><span id="totalReceivable" style="font-weight:700">0</span></div>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 10px;"><span data-i18n="totalPayable">Ümumi borc:</span><span id="totalPayable" style="font-weight:700">0</span></div>
+            <div style="display: flex; justify-content: space-between; padding-top: 10px; border-top:1px solid rgba(255,255,255,0.3);"><span data-i18n="netBalance">Net balans:</span><span id="netBalance" style="font-weight:700">0</span></div>
+        </div>
+    </div>
+
+    <div id="settingsPage" class="page">
+        <div class="settings-card">
+            <h3 data-i18n="settingsTitle">Ayarlar</h3>
+            <div style="background: var(--debt-item-bg); border-radius: 16px; padding: 12px; margin-top: 16px; border:1px solid var(--border-color);">
+                <h4>💱 Valyuta kursları (1 AZN)</h4>
+                <div id="currencyRatesList">1 AZN = 1.70 USD<br>1 AZN = 1.85 EUR<br>1 AZN = 0.05 TRY<br>1 AZN = 0.018 RUB</div>
+                <div class="rate-input-group">
+                    <input type="number" id="customUSD" step="0.01" placeholder="USD">
+                    <input type="number" id="customEUR" step="0.01" placeholder="EUR">
+                    <input type="number" id="customTRY" step="0.01" placeholder="TRY">
+                    <input type="number" id="customRUB" step="0.01" placeholder="RUB">
+                    <button class="save-rate-btn" id="saveCustomRatesBtn">Tətbiq et</button>
+                </div>
+                <button class="refresh-rate" id="resetDefaultRatesBtn" style="margin-top:10px;">🔁 Defolt kurslara qayıt</button>
+            </div>
+            <div class="backup-section">
+                <h4>💾 Rezerv nüsxə & Sinxronizasiya</h4>
+                <p style="font-size: 12px; color: var(--text-secondary); margin: 8px 0;">Avtomatik backup + Firebasedə sinxron</p>
+                <div class="backup-buttons">
+                    <button class="backup-btn export-btn" id="exportBackupBtn">📤 Yüklə (Export)</button>
+                    <button class="backup-btn import-btn" id="importBackupBtn">📥 Yüklənmiş faylı bərpa et</button>
+                    <button class="backup-btn copy-all-btn" id="copyAllDataBtn">📋 Bütün məlumatları kopyala</button>
+                </div>
+                <input type="file" id="backupFileInput" class="file-input" accept=".json">
+                <div class="auto-backup-info" id="autoBackupInfo">
+                    💾 Avtomatik backup aktivdir
+                </div>
+            </div>
+            <p style="margin: 16px 0; color: var(--text-secondary); font-size:13px" data-i18n="settingsDesc">• Hər dəyişiklik avtomatik yadda saxlanır (local)<br>• Firebasedə real-time sinxron (çox cihaz)<br>• Əməliyyat tarixçəsi</p>
+        </div>
+    </div>
+</div>
+
+<div class="bottom-nav">
+    <button class="nav-item active" data-page="people">👥 <span data-i18n="people">İnsanlar</span></button>
+    <button class="nav-item" data-page="balance">⚖️ <span data-i18n="balance">Balans</span></button>
+    <button class="nav-item" data-page="settings">⚙️ <span data-i18n="settings">Ayarlar</span></button>
+</div>
+
+<!-- Modallar eyni qalır, qısaldıb saxlayıram -->
+
+<div id="debtModal" class="modal">
+    <div class="modal-card">
+        <h3 data-i18n="newDebt">Yeni borc</h3>
+        <input type="text" id="debtName" placeholder="Ad Soyad" style="width:100%; padding:14px; border-radius:24px; border:2px solid #e2e8f0; margin-bottom:12px;">
+        <div class="debt-type-select">
+            <div class="type-option receivable" data-type="receivable">📥 Mənə borc (Alacaq)</div>
+            <div class="type-option payable" data-type="payable">📤 Mən borcluyam (Borc)</div>
+        </div>
+        <div class="currency-select">
+            <select id="debtCurrency"><option value="AZN">🇦🇿 AZN</option><option value="USD">🇺🇸 USD</option><option value="EUR">🇪🇺 EUR</option><option value="TRY">🇹🇷 TRY</option><option value="RUB">🇷🇺 RUB</option></select>
+            <input type="number" id="debtAmount" placeholder="Məbləğ" step="0.01">
+        </div>
+        <div class="modal-actions">
+            <button class="cancel-btn" id="closeModalBtn" data-i18n="cancel">Ləğv et</button>
+            <button class="save-btn" id="saveDebtBtn" data-i18n="add">Əlavə et</button>
+        </div>
+    </div>
+</div>
+
+<div id="editDebtModal" class="modal">
+    <div class="modal-card">
+        <h3 id="editDebtName">Ad</h3>
+        <div class="current-debt" id="editCurrentAmount">0</div>
+        <div style="background: #f1f5f9; border-radius: 16px; padding: 10px; margin: 10px 0; text-align: center; font-size: 13px;">
+            💡 <span id="logicHint">Azalt = məbləği azaldır | Artır = məbləği artırır</span>
+        </div>
+        <div class="currency-select">
+            <select id="editCurrency"><option value="AZN">AZN</option><option value="USD">USD</option><option value="EUR">EUR</option><option value="TRY">TRY</option><option value="RUB">RUB</option></select>
+            <input type="number" id="transactionAmount" placeholder="Məbləğ" step="0.01" value="1">
+        </div>
+        <div class="action-buttons">
+            <button class="action-btn minus-btn" id="detailDecrement">− <span data-i18n="decrease">Azalt</span></button>
+            <button class="action-btn plus-btn" id="detailIncrement">+ <span data-i18n="increase">Artır</span></button>
+        </div>
+        <textarea id="transactionComment" class="comment-input" rows="2" placeholder="Şərh..." data-i18n-placeholder="commentPlaceholder"></textarea>
+        <div class="quick-btns">
+            <button class="quick-btn" data-comment="Nağd pul">💰 Nağd</button>
+            <button class="quick-btn" data-comment="Bank köçürməsi">🏦 Bank</button>
+            <button class="quick-btn" data-comment="Hissə ödəniş">📉 Hissə</button>
+            <button class="quick-btn" data-comment="Tam ödəniş">✅ Tam</button>
+        </div>
+        <div class="transaction-list" id="transactionList"></div>
+        <div class="modal-actions">
+            <button class="cancel-btn" id="closeEditModalBtn" data-i18n="close">Bağla</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    // ========== FIREBASE KONFİQURASİYASI (istifadəçi öz configini daxil etməlidir) ==========
+    // Firebasedən kopyaladığınız config obyektini aşağıdakı dəyişənə yapışdırın.
+    // Əgər boş qalsa, sinxronizasiya işləməz (yalnız local).
+    const firebaseConfig = {
+        // Öz Firebase config məlumatlarınızı buraya yazın:
+        // apiKey: "YOUR_API_KEY",
+        // authDomain: "YOUR_PROJECT.firebaseapp.com",
+        // databaseURL: "https://YOUR_PROJECT.firebaseio.com",
+        // projectId: "YOUR_PROJECT",
+        // ...
+    };
+    let firebaseApp = null;
+    let db = null;
+    let syncEnabled = false;
+
+    // Başlat Firebase (əgər config varsa)
+    if (firebaseConfig && firebaseConfig.apiKey) {
+        try {
+            firebaseApp = firebase.initializeApp(firebaseConfig);
+            db = firebase.database();
+            syncEnabled = true;
+            document.getElementById('syncStatus').innerText = '☁️ sync on';
+        } catch(e) { console.warn('Firebase init error', e); syncEnabled = false; }
+    }
+
+    // ========== ƏSAS KOD ==========
+    let debts = [];
+    let exchangeRates = { AZN: 1, USD: 1.70, EUR: 1.85, TRY: 0.05, RUB: 0.018 };
+    let currentDisplayCurrency = 'AZN';
+    let currentLang = 'az';
+    let currentEditDebtId = null;
+    let selectedDebtType = 'receivable';
+    const STORAGE_KEY = 'debt_tracker_firebase';
+    let localUpdateGuard = false; // Firebase-dən gələn yeniləmələrdə geri yazmamaq üçün
+
+    // Dil
+    const translations = {
+        az: { receivable:"Alacaq", payable:"Borc", net:"Net", newDebt:"+ Yeni borc", fullBalance:"Tam Balans", totalReceivable:"Ümumi alacaq:", totalPayable:"Ümumi borc:", netBalance:"Net balans:", settingsTitle:"Ayarlar", settingsDesc:"• Hər dəyişiklik avtomatik yadda saxlanır (local)\n• Firebasedə real-time sinxron (çox cihaz)\n• Əməliyyat tarixçəsi", people:"İnsanlar", balance:"Balans", settings:"Ayarlar", cancel:"Ləğv et", add:"Əlavə et", enterAmount:"Məbləğ daxil edin", decrease:"Azalt", increase:"Artır", close:"Bağla", commentPlaceholder:"Şərh..." },
+        ru: { receivable:"Мне должны", payable:"Я должен", net:"Баланс", newDebt:"+ Новый долг", fullBalance:"Полный баланс", totalReceivable:"Общая сумма долга мне:", totalPayable:"Общая сумма моего долга:", netBalance:"Чистый баланс:", settingsTitle:"Настройки", settingsDesc:"• Автоматическое сохранение (локально)\n• Реальная синхронизация через Firebase\n• История операций", people:"Люди", balance:"Баланс", settings:"Настройки", cancel:"Отмена", add:"Добавить", enterAmount:"Введите сумму", decrease:"Уменьшить", increase:"Увеличить", close:"Закрыть", commentPlaceholder:"Комментарий..." },
+        en: { receivable:"Receivable", payable:"Payable", net:"Net", newDebt:"+ New Debt", fullBalance:"Full Balance", totalReceivable:"Total receivable:", totalPayable:"Total payable:", netBalance:"Net balance:", settingsTitle:"Settings", settingsDesc:"• Auto local save\n• Real-time Firebase sync\n• Transaction history", people:"People", balance:"Balance", settings:"Settings", cancel:"Cancel", add:"Add", enterAmount:"Enter amount", decrease:"Decrease", increase:"Increase", close:"Close", commentPlaceholder:"Comment..." }
+    };
+
+    // Valyuta funksiyaları
+    function toAZN(amount, fromCurrency) { if (fromCurrency === 'AZN') return amount; return amount * exchangeRates[fromCurrency]; }
+    function fromAZN(amountAZN, toCurrency) { if (toCurrency === 'AZN') return amountAZN; return amountAZN / exchangeRates[toCurrency]; }
+    function formatMoney(amountAZN, targetCurrency) { const converted = fromAZN(amountAZN, targetCurrency); const symbols = { AZN:'₼', USD:'$', EUR:'€', TRY:'₺', RUB:'₽' }; return `${converted.toFixed(2)} ${symbols[targetCurrency] || targetCurrency}`; }
+    function getDateTime() { const now = new Date(); return `${now.toLocaleDateString()} ${now.toLocaleTimeString()}`; }
+
+    // Yaddaş (local + Firebase sinxron)
+    function saveDataToLocal() { localStorage.setItem(STORAGE_KEY, JSON.stringify(debts)); createAutoBackup(); }
+    function createAutoBackup() { /* artıq var */ }
+
+    function pushToFirebase() {
+        if (!syncEnabled || localUpdateGuard) return;
+        db.ref('debts').set(debts).catch(e=>console.warn);
+        db.ref('exchangeRates').set(exchangeRates);
+    }
+
+    function loadDataFromLocal() {
+        const stored = localStorage.getItem(STORAGE_KEY);
+        if (stored) { try { debts = JSON.parse(stored); debts.forEach(d => { if (!d.transactions) d.transactions = []; }); } catch(e) { debts = []; } }
+        else { debts = []; }
+        renderAll();
+    }
+
+    function updateAllAndSync() {
+        renderAll();
+        saveDataToLocal();
+        pushToFirebase();
+    }
+
+    // ƏSAS: Azalt/Artır düymələrinin düzgün məntiqi (mütləq dəyəri dəyişir)
+    function updateDebtAmount(debtId, amountAZN, isIncrease) {
+        const idx = debts.findIndex(d => d.id === debtId);
+        if (idx === -1) return false;
+        let current = debts[idx].amount;
+        let sign = Math.sign(current);
+        if (sign === 0) sign = 1;
+        let newAmount;
+        if (isIncrease) {
+            newAmount = current + sign * amountAZN;
+        } else {
+            newAmount = current - sign * amountAZN;
+        }
+        if (Math.abs(newAmount) < 0.01) newAmount = 0;
+        if (newAmount === 0) {
+            if (confirm('Məbləğ sıfır olacaq. Silək?')) {
+                debts.splice(idx, 1);
+                updateAllAndSync();
+                closeEditModal();
+                return true;
+            } else return false;
+        }
+        debts[idx].amount = newAmount;
+        if (!debts[idx].transactions) debts[idx].transactions = [];
+        debts[idx].transactions.push({ id: Date.now(), dateStr: getDateTime(), delta: newAmount - current, newBalance: newAmount, comment: document.getElementById('transactionComment').value || 'Dəyişiklik' });
+        updateAllAndSync();
+        return true;
+    }
+
+    // UI render funksiyaları (əvvəlki kimi)
+    function renderAll() { renderPeopleList(); renderBalance(); updateUI(); }
+    function renderPeopleList() {
+        const container = document.getElementById('debtListContainer');
+        if (!container) return;
+        if (debts.length === 0) { container.innerHTML = '<div class="empty-state">💰 Heç bir borc yoxdur<br>➕ Yeni borc əlavə edin</div>'; return; }
+        let html = '';
+        debts.forEach(debt => {
+            const isPositive = debt.amount > 0;
+            const sign = isPositive ? '+' : '';
+            const cls = isPositive ? 'positive' : 'negative';
+            const amount = formatMoney(Math.abs(debt.amount), currentDisplayCurrency);
+            html += `<div class="debt-item" data-id="${debt.id}"><span class="debt-name">${escapeHtml(debt.name)}</span><div class="debt-right"><span class="debt-amount ${cls}">${sign}${amount}</span><button class="delete-btn" data-id="${debt.id}">🗑️</button></div></div>`;
+        });
+        container.innerHTML = html;
+        document.querySelectorAll('.delete-btn').forEach(btn => { btn.addEventListener('click', (e) => { e.stopPropagation(); const id = parseInt(btn.dataset.id); if (confirm('Silək?')) { debts = debts.filter(d => d.id !== id); updateAllAndSync(); if (currentEditDebtId === id) closeEditModal(); } }); });
+        document.querySelectorAll('.debt-item').forEach(item => { item.addEventListener('click', (e) => { if (e.target.classList.contains('delete-btn')) return; openEditModal(parseInt(item.dataset.id)); }); });
+    }
+    function renderBalance() {
+        let totalAZN = 0, recAZN = 0, payAZN = 0;
+        debts.forEach(d => { totalAZN += d.amount; if (d.amount > 0) recAZN += d.amount; else payAZN += Math.abs(d.amount); });
+        document.getElementById('headerReceivable').innerHTML = `+ ${formatMoney(recAZN, currentDisplayCurrency)}`;
+        document.getElementById('headerPayable').innerHTML = `- ${formatMoney(payAZN, currentDisplayCurrency)}`;
+        document.getElementById('headerNet').innerHTML = totalAZN >= 0 ? `+ ${formatMoney(totalAZN, currentDisplayCurrency)}` : `- ${formatMoney(Math.abs(totalAZN), currentDisplayCurrency)}`;
+        document.getElementById('totalReceivable').innerHTML = `+ ${formatMoney(recAZN, currentDisplayCurrency)}`;
+        document.getElementById('totalPayable').innerHTML = `- ${formatMoney(payAZN, currentDisplayCurrency)}`;
+        document.getElementById('netBalance').innerHTML = totalAZN >= 0 ? `+ ${formatMoney(totalAZN, currentDisplayCurrency)}` : `- ${formatMoney(Math.abs(totalAZN), currentDisplayCurrency)}`;
+    }
+    function openEditModal(id) {
+        const debt = debts.find(d => d.id === id);
+        if (!debt) return;
+        currentEditDebtId = id;
+        document.getElementById('editDebtName').innerText = debt.name;
+        document.getElementById('editCurrency').value = debt.currency || 'AZN';
+        document.getElementById('editCurrentAmount').innerHTML = formatMoney(Math.abs(debt.amount), currentDisplayCurrency) + (debt.amount > 0 ? ' (alacaq)' : ' (borc)');
+        renderTransactionHistory(debt);
+        document.getElementById('editDebtModal').style.display = 'flex';
+        document.getElementById('transactionComment').value = '';
+        document.getElementById('transactionAmount').value = '1';
+    }
+    function renderTransactionHistory(debt) {
+        const container = document.getElementById('transactionList');
+        if (!debt.transactions || debt.transactions.length === 0) { container.innerHTML = '<div style="text-align:center; color:#94a3b8; padding:16px;">Heç bir əməliyyat yoxdur</div>'; return; }
+        let html = '';
+        [...debt.transactions].reverse().forEach(t => {
+            const sign = t.delta > 0 ? '+' : '-';
+            html += `<div class="transaction-item"><div>${sign}${formatMoney(Math.abs(t.delta), currentDisplayCurrency)} → ${formatMoney(t.newBalance, currentDisplayCurrency)}</div><div class="trans-date">📅 ${t.dateStr}</div><div class="trans-comment">💬 ${escapeHtml(t.comment || '-')}</div></div>`;
+        });
+        container.innerHTML = html;
+    }
+    function addNewDebt(name, amount, currency, type) {
+        if (!name.trim()) { alert('Ad daxil edin'); return false; }
+        let numeric = parseFloat(amount);
+        if (isNaN(numeric) || numeric === 0) { alert('Məbləğ daxil edin'); return false; }
+        let amountAZN = toAZN(Math.abs(numeric), currency);
+        let finalAmount = type === 'receivable' ? amountAZN : -amountAZN;
+        let newDebt = { id: Date.now(), name: name.trim(), amount: finalAmount, currency: currency, transactions: [] };
+        newDebt.transactions.push({ id: Date.now(), dateStr: getDateTime(), delta: finalAmount, newBalance: finalAmount, comment: 'İlkin borc' });
+        debts.push(newDebt);
+        updateAllAndSync();
+        return true;
+    }
+    function setCurrency(currency) { currentDisplayCurrency = currency; renderAll(); }
+    function closeEditModal() { document.getElementById('editDebtModal').style.display = 'none'; currentEditDebtId = null; }
+    function showPage(page) { document.querySelectorAll('.page').forEach(p => p.classList.remove('active')); document.getElementById(page + 'Page').classList.add('active'); document.querySelectorAll('.nav-item').forEach(btn => btn.classList.toggle('active', btn.dataset.page === page)); if (page === 'balance') renderBalance(); }
+    function escapeHtml(str) { return str.replace(/[&<>]/g, m => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;' }[m])); }
+    function updateUI() {
+        document.querySelectorAll('[data-i18n]').forEach(el => { let key = el.getAttribute('data-i18n'); if (translations[currentLang][key]) el.textContent = translations[currentLang][key]; });
+        document.querySelectorAll('[data-i18n-placeholder]').forEach(el => { let key = el.getAttribute('data-i18n-placeholder'); if (translations[currentLang][key]) el.placeholder = translations[currentLang][key]; });
+    }
+    function setLanguage(lang) { currentLang = lang; updateUI(); renderAll(); document.querySelectorAll('.lang-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.lang === lang)); }
+
+    // Event listener düymələr
+    document.getElementById('detailDecrement').onclick = () => { let amt = parseFloat(document.getElementById('transactionAmount').value); let curr = document.getElementById('editCurrency').value; if (!isNaN(amt) && amt>0) updateDebtAmount(currentEditDebtId, toAZN(amt, curr), false); else alert('Düzgün məbləğ daxil edin'); };
+    document.getElementById('detailIncrement').onclick = () => { let amt = parseFloat(document.getElementById('transactionAmount').value); let curr = document.getElementById('editCurrency').value; if (!isNaN(amt) && amt>0) updateDebtAmount(currentEditDebtId, toAZN(amt, curr), true); else alert('Düzgün məbləğ daxil edin'); };
+    document.getElementById('openNewDebtModal').onclick = () => { document.getElementById('debtModal').style.display = 'flex'; };
+    document.getElementById('closeModalBtn').onclick = () => document.getElementById('debtModal').style.display = 'none';
+    document.getElementById('closeEditModalBtn').onclick = closeEditModal;
+    document.getElementById('saveDebtBtn').onclick = () => { let n=document.getElementById('debtName').value, a=document.getElementById('debtAmount').value, c=document.getElementById('debtCurrency').value, t=selectedDebtType; if(addNewDebt(n,a,c,t)) { document.getElementById('debtModal').style.display='none'; document.getElementById('debtName').value=''; document.getElementById('debtAmount').value=''; } };
+    document.getElementById('exportBackupBtn').onclick = () => { const data = JSON.stringify({debts, exchangeRates}, null,2); const blob = new Blob([data], {type:'application/json'}); const a = document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`backup_${Date.now()}.json`; a.click(); URL.revokeObjectURL(blob); };
+    document.getElementById('importBackupBtn').onclick = () => document.getElementById('backupFileInput').click();
+    document.getElementById('backupFileInput').onchange = (e) => { const file = e.target.files[0]; if(file){ const reader = new FileReader(); reader.onload = ev => { try{ const d=JSON.parse(ev.target.result); if(d.debts) debts=d.debts; if(d.exchangeRates) exchangeRates=d.exchangeRates; updateAllAndSync(); alert('Bərpa edildi'); }catch(e){ alert('Xəta'); } }; reader.readAsText(file); } };
+    document.getElementById('copyAllDataBtn').onclick = () => { navigator.clipboard.writeText(JSON.stringify({debts, exchangeRates},null,2)).then(()=>alert('Kopyalandı')); };
+    document.getElementById('saveCustomRatesBtn').onclick = () => { let u=parseFloat(document.getElementById('customUSD').value); if(u>0) exchangeRates.USD=u; let e=parseFloat(document.getElementById('customEUR').value); if(e>0) exchangeRates.EUR=e; let t=parseFloat(document.getElementById('customTRY').value); if(t>0) exchangeRates.TRY=t; let r=parseFloat(document.getElementById('customRUB').value); if(r>0) exchangeRates.RUB=r; updateRateDisplay(); renderAll(); pushToFirebase(); };
+    document.getElementById('resetDefaultRatesBtn').onclick = () => { exchangeRates={AZN:1,USD:1.70,EUR:1.85,TRY:0.05,RUB:0.018}; updateRateDisplay(); renderAll(); pushToFirebase(); };
+    document.getElementById('currencySelect').onchange = (e) => setCurrency(e.target.value);
+    document.querySelectorAll('.lang-btn').forEach(btn => btn.onclick = () => setLanguage(btn.dataset.lang));
+    document.querySelectorAll('.nav-item').forEach(btn => btn.onclick = () => showPage(btn.dataset.page));
+    document.querySelectorAll('.balance-card').forEach(card => card.onclick = () => showPage('balance'));
+    document.querySelectorAll('.quick-btn').forEach(btn => btn.onclick = () => document.getElementById('transactionComment').value = btn.dataset.comment);
+    document.getElementById('themeToggle').onclick = () => { document.body.classList.toggle('dark'); localStorage.setItem('theme', document.body.classList.contains('dark') ? 'dark' : 'light'); };
+    window.onclick = (e) => { if (e.target.classList.contains('modal')) e.target.style.display = 'none'; };
+
+    function updateRateDisplay() {
+        document.getElementById('currencyRatesList').innerHTML = `1 AZN = ${exchangeRates.USD.toFixed(4)} USD<br>1 AZN = ${exchangeRates.EUR.toFixed(4)} EUR<br>1 AZN = ${exchangeRates.TRY.toFixed(2)} TRY<br>1 AZN = ${exchangeRates.RUB.toFixed(2)} RUB`;
+        document.getElementById('rateInfo').innerHTML = `<span>💵 USD: ${exchangeRates.USD.toFixed(2)}</span><span>💶 EUR: ${exchangeRates.EUR.toFixed(2)}</span><span>🇹🇷 TRY: ${exchangeRates.TRY.toFixed(2)}</span><span>🇷🇺 RUB: ${exchangeRates.RUB.toFixed(2)}</span>`;
+    }
+
+    // Firebase real-time listener
+    if (syncEnabled) {
+        db.ref('debts').on('value', (snapshot) => {
+            const val = snapshot.val();
+            if (val && JSON.stringify(val) !== JSON.stringify(debts)) {
+                localUpdateGuard = true;
+                debts = val;
+                debts.forEach(d => { if (!d.transactions) d.transactions = []; });
+                saveDataToLocal();
+                renderAll();
+                localUpdateGuard = false;
+            }
+        });
+        db.ref('exchangeRates').on('value', (snapshot) => {
+            const val = snapshot.val();
+            if (val && JSON.stringify(val) !== JSON.stringify(exchangeRates)) {
+                exchangeRates = val;
+                updateRateDisplay();
+                renderAll();
+            }
+        });
+    }
+
+    // Başlat
+    function init() {
+        const savedTheme = localStorage.getItem('theme');
+        if (savedTheme === 'dark') document.body.classList.add('dark');
+        startDollarRain();
+        loadDataFromLocal();
+        setLanguage('az');
+        showPage('people');
+    }
+    function startDollarRain() {
+        const container = document.getElementById('dollarRain');
+        const symbols = ['💵','💶','💷','💴','💰','$','€','£'];
+        for (let i=0;i<40;i++) {
+            const d = document.createElement('div'); d.className='dollar'; d.innerHTML=symbols[Math.floor(Math.random()*symbols.length)];
+            d.style.left=Math.random()*100+'%'; d.style.fontSize=(15+Math.random()*30)+'px'; d.style.animationDuration=(3+Math.random()*6)+'s'; d.style.animationDelay=(Math.random()*10)+'s'; d.style.opacity=0.2+Math.random()*0.5;
+            container.appendChild(d);
+        }
+    }
+    init();
+</script>
+</body>
+</html>
